@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import uuid
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from customer_import_service.db.models import Customer, ImportJob, ImportRowError
+from customer_import_service.errors import APIError
 
 
 logger = logging.getLogger("customer_import_service")
@@ -38,18 +40,16 @@ def create_import_job(
     submitted_by: str,
     idempotency_key: str | None = None,
     storage_path: str = "",
-    retry_of: ImportJob | None = None,
 ) -> ImportJob:
-    logger.info("creating import job", extra={"filename": filename, "submitted_by": submitted_by})
+    logger.info("creating import job", extra={"uploaded_filename": filename, "submitted_by": submitted_by})
     return ImportJob.objects.create(
-        status=ImportJob.Status.PROCESSING,
+        status=ImportJob.Status.QUEUED,
         filename=filename,
         file_sha256=file_sha256,
         storage_path=storage_path,
         idempotency_key=idempotency_key or None,
         submitted_by=submitted_by,
-        retry_of=retry_of,
-        started_at=timezone.now(),
+        started_at=None,
     )
 
 
@@ -59,8 +59,15 @@ def save_import_storage_path(job: ImportJob, storage_path: str) -> None:
     job.save(update_fields=["storage_path", "updated_at"])
 
 
+def mark_job_processing(job: ImportJob) -> None:
+    job.status = ImportJob.Status.PROCESSING
+    if job.started_at is None:
+        job.started_at = timezone.now()
+    job.save(update_fields=["status", "started_at", "updated_at"])
+
+
 def mark_job_failed(job: ImportJob, message: str) -> None:
-    logger.error("marking import job failed", extra={"job_id": str(job.id), "message": message})
+    logger.error("marking import job failed", extra={"job_id": str(job.id), "error_message": message})
     job.status = ImportJob.Status.FAILED
     job.error_message = message
     job.finished_at = timezone.now()
@@ -118,8 +125,19 @@ def list_import_jobs(status: str | None = None) -> object:
     return qs
 
 
+def _import_job_uuid(job_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(job_id))
+    except (TypeError, ValueError) as exc:
+        raise APIError(400, "bad_uuid", "Import job ID must be a valid UUID.") from exc
+
+
 def get_import_job(job_id: str) -> ImportJob:
-    return ImportJob.objects.get(pk=job_id)
+    job_uuid = _import_job_uuid(job_id)
+    try:
+        return ImportJob.objects.get(pk=job_uuid)
+    except ImportJob.DoesNotExist as exc:
+        raise APIError(404, "import_not_found", "Import job was not found.") from exc
 
 
 def list_import_errors(job: ImportJob) -> object:
@@ -132,11 +150,15 @@ def iter_import_errors(job: ImportJob):
 
 def upsert_customer(row: object, actor: str) -> str:
     with transaction.atomic():
-        customer = Customer.objects.select_for_update().filter(email=row.email).first()
+        customer = Customer.objects.select_for_update().filter(p=row.p, cid=row.cid).first()
+        if customer is None:
+            customer = Customer.objects.select_for_update().filter(email=row.email).first()
 
         if customer is None:
             logger.info("creating customer from import", extra={"email": row.email, "actor": actor})
             customer = Customer.objects.create(
+                p=row.p,
+                cid=row.cid,
                 email=row.email,
                 name=row.name,
                 status=row.status,
@@ -154,6 +176,14 @@ def upsert_customer(row: object, actor: str) -> str:
             logger.info("skipping stale customer import row", extra={"email": row.email, "actor": actor})
             return "skipped_stale"
 
+        if Customer.objects.exclude(pk=customer.pk).filter(p=row.p, cid=row.cid).exists():
+            logger.warning("partner/cid conflict during import", extra={"p": row.p, "cid": row.cid, "actor": actor})
+            raise ImportRepositoryError(
+                "identifier_conflict",
+                "partner and cid are already attached to another customer.",
+                field="cid",
+            )
+
         if Customer.objects.exclude(pk=customer.pk).filter(email=row.email).exists():
             logger.warning("email conflict during import", extra={"email": row.email, "actor": actor})
             raise ImportRepositoryError(
@@ -163,6 +193,8 @@ def upsert_customer(row: object, actor: str) -> str:
             )
 
         customer.email = row.email
+        customer.p = row.p
+        customer.cid = row.cid
         customer.name = row.name
         customer.status = row.status
         customer.tier = row.tier
@@ -174,6 +206,8 @@ def upsert_customer(row: object, actor: str) -> str:
         customer.save(
             update_fields=[
                 "email",
+                "p",
+                "cid",
                 "name",
                 "status",
                 "tier",

@@ -1,0 +1,441 @@
+{
+  "info": {
+    "_postman_id": "b82d41a5-8ca8-4c18-9178-2f0dcf216a64",
+    "name": "Customer Import Service",
+    "description": "Postman collection for the Customer Import Service API. Run Auth > Issue Token first, then use protected requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "username",
+      "value": "operator"
+    },
+    {
+      "key": "password",
+      "value": "operatorpass"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    },
+    {
+      "key": "import_job_id",
+      "value": ""
+    },
+    {
+      "key": "idempotency_key",
+      "value": "postman-import-001"
+    }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Prometheus Metrics",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/metrics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            },
+            "description": "Returns Prometheus metrics."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Issue Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/auth/token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "token"
+              ]
+            },
+            "description": "Gets a bearer token and saves it as the `access_token` variable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('token issued', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "List Customers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/customers?page=1&per_page=50",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "50"
+                },
+                {
+                  "key": "email",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "disabled": true
+                },
+                {
+                  "key": "tier",
+                  "value": "pro",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "Ada",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists customers. Optional filters are included but disabled."
+          }
+        },
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p\": \"p1\",\n  \"row\": \"1\",\n  \"cid\": \"PM-001\",\n  \"email\": \"postman.customer@example.com\",\n  \"name\": \"Postman Customer\",\n  \"status\": \"active\",\n  \"tier\": \"pro\",\n  \"upd\": \"2026-06-03\",\n  \"tags\": \"postman; manual\",\n  \"note\": \"Created from Postman collection\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/customers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "customers"
+              ]
+            },
+            "description": "Creates a customer and stores the returned `customer.id` as `customer_id`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('customer created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const body = pm.response.json();",
+                  "  pm.environment.set('customer_id', body.customer.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Customer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/customers/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "{{customer_id}}"
+              ]
+            },
+            "description": "Gets one customer by `customer_id`."
+          }
+        },
+        {
+          "name": "Patch Customer",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"p\": \"p1\",\n  \"cid\": \"PM-001\",\n  \"tier\": \"ent\",\n  \"tags\": \"postman; upgraded\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/customers/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "{{customer_id}}"
+              ]
+            },
+            "description": "Updates a customer by `customer_id`."
+          }
+        },
+        {
+          "name": "Deactivate Customer",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/customers/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "customers",
+                "{{customer_id}}"
+              ]
+            },
+            "description": "Soft-deactivates a customer by setting `status` to `inactive`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Imports",
+      "item": [
+        {
+          "name": "Upload Customer CSV",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "samples/partner_customers.csv"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/imports",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "imports"
+              ]
+            },
+            "description": "Uploads a CSV file using the current import schema. In Postman, select `samples/partner_customers.csv` if the file path is not resolved automatically."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('idempotency_key')) {",
+                  "  pm.environment.set('idempotency_key', 'postman-import-' + Date.now());",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('import accepted or duplicate returned', function () {",
+                  "  pm.expect([200, 202]).to.include(pm.response.code);",
+                  "  const body = pm.response.json();",
+                  "  if (body.job && body.job.id) {",
+                  "    pm.environment.set('import_job_id', body.job.id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Import Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/imports?page=1&per_page=25",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "imports"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "25"
+                },
+                {
+                  "key": "status",
+                  "value": "partial_failed",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists import jobs. Optional status filter is included but disabled."
+          }
+        },
+        {
+          "name": "Get Import Job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/imports/{{import_job_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "imports",
+                "{{import_job_id}}"
+              ]
+            },
+            "description": "Gets one import job by `import_job_id`."
+          }
+        },
+        {
+          "name": "Download Import Row Errors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/imports/{{import_job_id}}/errors",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "imports",
+                "{{import_job_id}}",
+                "errors"
+              ]
+            },
+            "description": "Downloads row-level import errors as CSV for an import job."
+          }
+        }
+      ]
+    }
+  ]
+}

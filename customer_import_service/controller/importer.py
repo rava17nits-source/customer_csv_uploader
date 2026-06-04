@@ -5,6 +5,7 @@ from datetime import date, datetime
 import csv
 import hashlib
 import logging
+from multiprocessing import get_context
 import os
 import re
 import shutil
@@ -17,16 +18,20 @@ from werkzeug.datastructures import FileStorage
 from customer_import_service.db.models import Customer, ImportJob
 from customer_import_service.errors import APIError
 from customer_import_service.observability import IMPORT_JOBS, IMPORT_ROWS
+from customer_import_service.job_runner import run_import_job
 from customer_import_service.repository import import_repository
 from customer_import_service.repository.import_repository import ImportRepositoryError
 
 logger = logging.getLogger("customer_import_service")
+
 HEADER_ALIASES = {
+    "p": "p",
     "row": "source_row",
+    "cid": "cid",
     "upd": "updated_at",
 }
 CANONICAL_HEADERS = ["p", "row", "cid", "email", "name", "status", "tier", "upd", "tags", "note"]
-REQUIRED_FIELDS = {"email", "name", "status", "tier", "updated_at"}
+REQUIRED_FIELDS = {"p", "cid", "email", "name", "status", "tier", "updated_at"}
 OPTIONAL_FIELDS = {"source_row", "tags", "note"}
 IMPORT_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -36,13 +41,15 @@ VALID_TIERS = {choice[0] for choice in Customer.Tier.choices}
 
 @dataclass
 class NormalizedRow:
+    p: str
+    cid: str
     source_row: str
     email: str
     name: str
     status: str
     tier: str
     updated_at: date
-    tags: list[str]
+    tags: str
     note: str
     raw: dict
     physical_line: int | None
@@ -71,7 +78,7 @@ class RowValidationError(Exception):
 class ImportResult:
     job: ImportJob
     duplicate: bool = False
-    http_status: int = 201
+    http_status: int = 202
 
 
 def build_header_map(headers: list[str]) -> dict[str, int]:
@@ -101,12 +108,6 @@ def parse_date(value: str) -> date:
         except ValueError:
             continue
     raise ValueError("expected YYYYMMDD or YYYY-MM-DD")
-
-
-def split_tags(value: str) -> list[str]:
-    if not value:
-        return []
-    return [part.strip() for part in re.split(r"[;|]", value) if part.strip()]
 
 
 def raw_row_from(headers: list[str], row: list[str]) -> dict:
@@ -140,6 +141,8 @@ def normalized_row(
             return ""
         return row[index].strip()
 
+    p = value("p")
+    cid = value("cid")
     source_row = value("source_row")
     email = value("email").lower()
     name = " ".join(value("name").split())
@@ -147,6 +150,8 @@ def normalized_row(
     tier = value("tier").lower()
     updated_raw = value("updated_at")
     for field_name, field_value in {
+        "p": p,
+        "cid": cid,
         "email": email,
         "name": name,
         "status": status,
@@ -204,13 +209,15 @@ def normalized_row(
         ) from exc
 
     return NormalizedRow(
+        p=p,
+        cid=cid,
         source_row=source_row,
         email=email,
         name=name,
         status=status,
         tier=tier,
         updated_at=updated_at,
-        tags=split_tags(value("tags")),
+        tags=value("tags"),
         note=value("note"),
         raw=raw,
         physical_line=physical_line,
@@ -301,6 +308,11 @@ def move_upload_to_job_path(tmp_path: str, storage_dir: str, job_id: str) -> str
     return str(target)
 
 
+def launch_import_process(job_id: str) -> None:
+    process = get_context("spawn").Process(target=run_import_job, args=(job_id,))
+    process.start()
+
+
 class CustomerImporter:
     def __init__(self, storage_dir: str) -> None:
         self.storage_dir = storage_dir
@@ -315,10 +327,10 @@ class CustomerImporter:
             logger.warning("import upload missing file")
             raise APIError(400, "missing_file", "Upload a CSV file using multipart field 'file'.")
         if Path(file_storage.filename).suffix.lower() != ".csv":
-            logger.warning("import upload rejected due to file type", extra={"filename": file_storage.filename})
+            logger.warning("import upload rejected due to file type", extra={"uploaded_filename": file_storage.filename})
             raise APIError(400, "invalid_file_type", "Only .csv files are accepted.")
 
-        logger.info("import upload started", extra={"submitted_by": submitted_by, "filename": file_storage.filename})
+        logger.info("import upload started", extra={"submitted_by": submitted_by, "uploaded_filename": file_storage.filename})
         tmp_path, file_sha256 = save_upload_to_storage(file_storage, self.storage_dir)
         try:
             existing_by_key = None
@@ -348,31 +360,21 @@ class CustomerImporter:
             storage_path = move_upload_to_job_path(tmp_path, self.storage_dir, str(job.id))
             tmp_path = ""
             import_repository.save_import_storage_path(job, storage_path)
-            self.process_job(job)
-            logger.info(
-                "import upload finished",
-                extra={"job_id": str(job.id), "status": job.status, "failed_rows": job.failed_rows},
-            )
-            return ImportResult(job, duplicate=False, http_status=422 if job.status == ImportJob.Status.FAILED else 201)
+            try:
+                launch_import_process(str(job.id))
+            except Exception as exc:
+                logger.exception("failed to start import process", extra={"job_id": str(job.id)})
+                import_repository.mark_job_failed(job, "Unable to start the import process.")
+                raise APIError(
+                    503,
+                    "import_process_unavailable",
+                    "Unable to start the import process.",
+                ) from exc
+            logger.info("import upload queued", extra={"job_id": str(job.id), "status": job.status})
+            return ImportResult(job, duplicate=False)
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
-
-    def retry_job(self, original: ImportJob, submitted_by: str) -> ImportResult:
-        if not original.storage_path or not os.path.exists(original.storage_path):
-            logger.warning("import retry file unavailable", extra={"job_id": str(original.id)})
-            raise APIError(409, "import_file_unavailable", "The original import file is not available for retry.")
-
-        logger.info("import retry started", extra={"original_job_id": str(original.id), "submitted_by": submitted_by})
-        job = import_repository.create_import_job(
-            filename=original.filename,
-            file_sha256=original.file_sha256,
-            storage_path=original.storage_path,
-            submitted_by=submitted_by,
-            retry_of=original,
-        )
-        self.process_job(job)
-        return ImportResult(job, duplicate=False, http_status=422 if job.status == ImportJob.Status.FAILED else 201)
 
     def process_job(self, job: ImportJob) -> None:
         try:
@@ -395,7 +397,7 @@ class CustomerImporter:
             logger.exception("import job failed unexpectedly", extra={"job_id": str(job.id)})
             import_repository.mark_job_failed(job, str(exc))
             IMPORT_JOBS.labels(job.status).inc()
-            raise
+            return
 
     def _process_record(
         self,

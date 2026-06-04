@@ -14,14 +14,15 @@ class Customer(models.Model):
         ENTERPRISE = "ent", "Enterprise"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    p = models.CharField(max_length=64, blank=True, null=True)
+    cid = models.CharField(max_length=128, blank=True, null=True)
     email = models.EmailField(unique=True)
     name = models.CharField(max_length=255)
     status = models.CharField(max_length=16, choices=Status.choices)
     tier = models.CharField(max_length=16, choices=Tier.choices)
-    tags = models.JSONField(default=list, blank=True)
+    tags = models.TextField(blank=True, default="")
     note = models.TextField(blank=True)
     internal_note = models.TextField(blank=True)
-    internal_metadata = models.JSONField(default=dict, blank=True)
     source_updated_at = models.DateField(null=True, blank=True)
     last_imported_at = models.DateTimeField(null=True, blank=True)
     created_by = models.CharField(max_length=255, blank=True)
@@ -31,7 +32,11 @@ class Customer(models.Model):
 
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["p", "cid"], name="uniq_customer_partner_cid"),
+        ]
         indexes = [
+            models.Index(fields=["p", "cid"], name="idx_customer_partner_cid"),
             models.Index(fields=["email"], name="idx_customer_email"),
             models.Index(fields=["status", "tier"], name="idx_customer_status_tier"),
             models.Index(fields=["source_updated_at"], name="idx_customer_source_updated"),
@@ -40,19 +45,19 @@ class Customer(models.Model):
 
 class ImportJob(models.Model):
     class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
         PROCESSING = "processing", "Processing"
         COMPLETED = "completed", "Completed"
         PARTIAL_FAILED = "partial_failed", "Partial Failed"
         FAILED = "failed", "Failed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    status = models.CharField(max_length=32, choices=Status.choices, default=Status.PROCESSING)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.QUEUED)
     filename = models.CharField(max_length=255, blank=True)
     file_sha256 = models.CharField(max_length=64, blank=True)
     storage_path = models.TextField(blank=True)
     idempotency_key = models.CharField(max_length=255, null=True, blank=True)
     submitted_by = models.CharField(max_length=255, blank=True)
-    retry_of = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
     total_rows = models.PositiveIntegerField(default=0)
     created_rows = models.PositiveIntegerField(default=0)
     updated_rows = models.PositiveIntegerField(default=0)

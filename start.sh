@@ -68,7 +68,7 @@ wait_for_app() {
 require_docker
 start_docker_desktop
 
-echo "Building and starting Postgres plus the application..."
+echo "Building and starting Postgres and the application..."
 compose up --build -d
 wait_for_app
 

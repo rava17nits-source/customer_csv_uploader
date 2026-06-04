@@ -43,20 +43,22 @@ def links_for_job(job: ImportJob) -> dict:
     return {
         "self": url_for("importjobresource", job_id=str(job.id), _external=False),
         "errors": url_for("importerrorsresource", job_id=str(job.id), _external=False),
-        "retry": url_for("importretryresource", job_id=str(job.id), _external=False),
     }
 
 
 def validate_customer_payload(data: dict, partial: bool = False) -> dict:
     allowed = {
+        "p",
+        "row",
+        "cid",
         "email",
         "name",
         "status",
         "tier",
+        "upd",
         "tags",
         "note",
         "internal_note",
-        "internal_metadata",
         "source_updated_at",
     }
     unknown = sorted(set(data) - allowed)
@@ -96,22 +98,28 @@ def validate_customer_payload(data: dict, partial: bool = False) -> dict:
             raise APIError(422, "invalid_tier", "tier is not supported.", {"allowed": sorted(VALID_TIERS)})
         cleaned["tier"] = tier
     if "tags" in data:
-        if not isinstance(data["tags"], list) or not all(isinstance(tag, str) for tag in data["tags"]):
-            raise APIError(422, "invalid_tags", "tags must be a list of strings.")
-        cleaned["tags"] = [tag.strip() for tag in data["tags"] if tag.strip()]
+        tags = data["tags"]
+        if not isinstance(tags, str):
+            raise APIError(422, "invalid_tags", "tags must be a string.")
+        cleaned["tags"] = tags.strip()
+    if "p" in data:
+        cleaned["p"] = str(data["p"]).strip()
+    if "cid" in data:
+        cleaned["cid"] = str(data["cid"]).strip()
     if "note" in data:
         cleaned["note"] = str(data["note"])
     if "internal_note" in data:
         cleaned["internal_note"] = str(data["internal_note"])
-    if "internal_metadata" in data:
-        if not isinstance(data["internal_metadata"], dict):
-            raise APIError(422, "invalid_internal_metadata", "internal_metadata must be a JSON object.")
-        cleaned["internal_metadata"] = data["internal_metadata"]
     if "source_updated_at" in data and data["source_updated_at"]:
         try:
             cleaned["source_updated_at"] = parse_date(str(data["source_updated_at"]))
         except ValueError as exc:
             raise APIError(422, "invalid_source_updated_at", "source_updated_at must be YYYYMMDD or YYYY-MM-DD.") from exc
+    if "upd" in data and data["upd"] and "source_updated_at" not in cleaned:
+        try:
+            cleaned["source_updated_at"] = parse_date(str(data["upd"]))
+        except ValueError as exc:
+            raise APIError(422, "invalid_upd", "upd must be YYYYMMDD or YYYY-MM-DD.") from exc
     return cleaned
 
 
@@ -188,7 +196,7 @@ class ImportCollectionResource(Resource):
         idempotency_key = request.headers.get("Idempotency-Key")
         logger.info(
             "import upload requested",
-            extra={"actor": actor(), "filename": getattr(file_storage, "filename", "")},
+            extra={"actor": actor(), "uploaded_filename": getattr(file_storage, "filename", "")},
         )
         importer = CustomerImporter(current_app.config["IMPORT_STORAGE_DIR"])
         result = importer.import_upload(
@@ -201,7 +209,8 @@ class ImportCollectionResource(Resource):
             "duplicate": result.duplicate,
             "links": links_for_job(result.job),
         }
-        return payload, result.http_status
+        headers = {"Location": url_for("importjobresource", job_id=str(result.job.id), _external=False)}
+        return payload, result.http_status, headers
 
     @require_scopes("imports:read")
     def get(self):
@@ -222,10 +231,7 @@ class ImportJobResource(Resource):
 
     @staticmethod
     def _job(job_id: str) -> ImportJob:
-        try:
-            return import_repository.get_import_job(job_id)
-        except (ImportJob.DoesNotExist, ValueError) as exc:
-            raise APIError(404, "import_not_found", "Import job was not found.") from exc
+        return import_repository.get_import_job(job_id)
 
 
 class ImportErrorsResource(Resource):
@@ -236,20 +242,6 @@ class ImportErrorsResource(Resource):
         response = Response(failed_rows_csv(job), mimetype="text/csv")
         response.headers["Content-Disposition"] = f'attachment; filename="failed_rows_{job.id}.csv"'
         return response
-
-
-class ImportRetryResource(Resource):
-    @require_scopes("imports:write")
-    def post(self, job_id: str):
-        original = ImportJobResource._job(job_id)
-        logger.info("import retry requested", extra={"actor": actor(), "job_id": job_id})
-        importer = CustomerImporter(current_app.config["IMPORT_STORAGE_DIR"])
-        result = importer.retry_job(original, submitted_by=actor())
-        return {
-            "job": import_job_to_dict(result.job),
-            "retry_of": str(original.id),
-            "links": links_for_job(result.job),
-        }, result.http_status
 
 
 class HealthResource(Resource):

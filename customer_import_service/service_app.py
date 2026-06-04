@@ -28,7 +28,6 @@ def create_app(overrides: dict | None = None) -> Flask:
         ImportCollectionResource,
         ImportErrorsResource,
         ImportJobResource,
-        ImportRetryResource,
     )
 
     api = Api(app, catch_all_404s=True)
@@ -38,7 +37,6 @@ def create_app(overrides: dict | None = None) -> Flask:
     api.add_resource(ImportCollectionResource, "/v1/imports")
     api.add_resource(ImportJobResource, "/v1/imports/<string:job_id>")
     api.add_resource(ImportErrorsResource, "/v1/imports/<string:job_id>/errors")
-    api.add_resource(ImportRetryResource, "/v1/imports/<string:job_id>/retry")
     return app
 
 

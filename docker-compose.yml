@@ -1,3 +1,9 @@
+x-common-env: &common-env
+  DATABASE_URL: postgresql://crm_user:crm_password@db:5432/customer_imports
+  IMPORT_STORAGE_DIR: /app/data/imports
+  JWT_SECRET: local-docker-jwt-secret-change-me
+  DJANGO_SECRET_KEY: local-docker-django-secret-change-me
+
 services:
   db:
     image: postgres:17
@@ -19,11 +25,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://crm_user:crm_password@db:5432/customer_imports
+      <<: *common-env
       AUTO_MIGRATE: "1"
-      IMPORT_STORAGE_DIR: /app/data/imports
-      JWT_SECRET: local-docker-jwt-secret-change-me
-      DJANGO_SECRET_KEY: local-docker-django-secret-change-me
     ports:
       - "8000:8000"
     volumes:

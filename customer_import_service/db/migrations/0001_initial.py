@@ -1,7 +1,7 @@
 import uuid
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
@@ -14,6 +14,8 @@ class Migration(migrations.Migration):
             name="Customer",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ("p", models.CharField(blank=True, max_length=64, null=True)),
+                ("cid", models.CharField(blank=True, max_length=128, null=True)),
                 ("email", models.EmailField(max_length=254, unique=True)),
                 ("name", models.CharField(max_length=255)),
                 (
@@ -27,10 +29,9 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
-                ("tags", models.JSONField(blank=True, default=list)),
+                ("tags", models.TextField(blank=True, default="")),
                 ("note", models.TextField(blank=True)),
                 ("internal_note", models.TextField(blank=True)),
-                ("internal_metadata", models.JSONField(blank=True, default=dict)),
                 ("source_updated_at", models.DateField(blank=True, null=True)),
                 ("last_imported_at", models.DateTimeField(blank=True, null=True)),
                 ("created_by", models.CharField(blank=True, max_length=255)),
@@ -47,12 +48,13 @@ class Migration(migrations.Migration):
                     "status",
                     models.CharField(
                         choices=[
+                            ("queued", "Queued"),
                             ("processing", "Processing"),
                             ("completed", "Completed"),
                             ("partial_failed", "Partial Failed"),
                             ("failed", "Failed"),
                         ],
-                        default="processing",
+                        default="queued",
                         max_length=32,
                     ),
                 ),
@@ -72,39 +74,12 @@ class Migration(migrations.Migration):
                 ("finished_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "retry_of",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to="customer_import_service.importjob",
-                    ),
-                ),
-            ],
-        ),
-        migrations.CreateModel(
-            name="CustomerIdentifier",
-            fields=[
-                ("id", models.BigAutoField(primary_key=True, serialize=False)),
-                ("partner", models.CharField(max_length=64)),
-                ("external_id", models.CharField(max_length=128)),
-                ("first_seen_at", models.DateTimeField(auto_now_add=True)),
-                ("last_seen_at", models.DateTimeField(auto_now=True)),
-                (
-                    "customer",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="identifiers",
-                        to="customer_import_service.customer",
-                    ),
-                ),
             ],
         ),
         migrations.CreateModel(
             name="ImportRowError",
             fields=[
-                ("id", models.BigAutoField(primary_key=True, serialize=False)),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("source_row", models.CharField(blank=True, max_length=64)),
                 ("physical_line", models.PositiveIntegerField(blank=True, null=True)),
                 ("identity_key", models.CharField(blank=True, max_length=255)),
@@ -123,6 +98,14 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.AddConstraint(
+            model_name="customer",
+            constraint=models.UniqueConstraint(fields=("p", "cid"), name="uniq_customer_partner_cid"),
+        ),
+        migrations.AddIndex(
+            model_name="customer",
+            index=models.Index(fields=["p", "cid"], name="idx_customer_partner_cid"),
+        ),
         migrations.AddIndex(
             model_name="customer",
             index=models.Index(fields=["email"], name="idx_customer_email"),
@@ -134,18 +117,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="customer",
             index=models.Index(fields=["source_updated_at"], name="idx_customer_source_updated"),
-        ),
-        migrations.AddConstraint(
-            model_name="customeridentifier",
-            constraint=models.UniqueConstraint(fields=("partner", "external_id"), name="uniq_partner_external_id"),
-        ),
-        migrations.AddIndex(
-            model_name="customeridentifier",
-            index=models.Index(fields=["partner", "external_id"], name="idx_ident_partner_external"),
-        ),
-        migrations.AddIndex(
-            model_name="customeridentifier",
-            index=models.Index(fields=["customer"], name="idx_identifier_customer"),
         ),
         migrations.AddConstraint(
             model_name="importjob",

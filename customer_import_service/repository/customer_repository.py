@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
@@ -25,14 +27,15 @@ def create_customer(cleaned: dict, actor: str) -> Customer:
     try:
         with transaction.atomic():
             customer = Customer.objects.create(
+                p=cleaned.get("p") or None,
+                cid=cleaned.get("cid") or None,
                 email=cleaned["email"],
                 name=cleaned["name"],
                 status=cleaned["status"],
                 tier=cleaned["tier"],
-                tags=cleaned.get("tags", []),
+                tags=cleaned.get("tags", ""),
                 note=cleaned.get("note", ""),
                 internal_note=cleaned.get("internal_note", ""),
-                internal_metadata=cleaned.get("internal_metadata", {}),
                 source_updated_at=cleaned["source_updated_at"],
                 created_by=actor,
                 updated_by=actor,
@@ -42,16 +45,28 @@ def create_customer(cleaned: dict, actor: str) -> Customer:
         raise APIError(409, "customer_conflict", "Customer email already exists.") from exc
 
 
-def get_customer(customer_id: str) -> Customer:
+def _customer_uuid(customer_id: str) -> uuid.UUID:
     try:
-        return Customer.objects.get(pk=customer_id)
-    except (Customer.DoesNotExist, ValueError) as exc:
+        return uuid.UUID(str(customer_id))
+    except (TypeError, ValueError) as exc:
+        raise APIError(400, "bad_uuid", "Customer ID must be a valid UUID.") from exc
+
+
+def get_customer(customer_id: str) -> Customer:
+    customer_uuid = _customer_uuid(customer_id)
+    try:
+        return Customer.objects.get(pk=customer_uuid)
+    except Customer.DoesNotExist as exc:
         raise APIError(404, "customer_not_found", "Customer was not found.") from exc
 
 
 def update_customer(customer: Customer, cleaned: dict, actor: str) -> Customer:
     if "email" in cleaned and Customer.objects.exclude(pk=customer.pk).filter(email=cleaned["email"]).exists():
         raise APIError(409, "email_conflict", "email is already attached to another customer.")
+    candidate_p = cleaned.get("p", customer.p)
+    candidate_cid = cleaned.get("cid", customer.cid)
+    if (("p" in cleaned) or ("cid" in cleaned)) and Customer.objects.exclude(pk=customer.pk).filter(p=candidate_p, cid=candidate_cid).exists():
+        raise APIError(409, "customer_conflict", "partner and cid is already attached to another customer.")
     for field, value in cleaned.items():
         setattr(customer, field, value)
     customer.updated_by = actor

@@ -10,6 +10,8 @@ def iso(value):
 def customer_to_dict(customer) -> dict:
     data = {
         "id": str(customer.id),
+        "p": customer.p,
+        "cid": customer.cid,
         "email": customer.email,
         "name": customer.name,
         "status": customer.status,
@@ -17,7 +19,6 @@ def customer_to_dict(customer) -> dict:
         "tags": customer.tags,
         "note": customer.note,
         "internal_note": customer.internal_note,
-        "internal_metadata": customer.internal_metadata,
         "source_updated_at": iso(customer.source_updated_at),
         "last_imported_at": iso(customer.last_imported_at),
         "created_by": customer.created_by,
@@ -36,7 +37,6 @@ def import_job_to_dict(job) -> dict:
         "file_sha256": job.file_sha256,
         "idempotency_key": job.idempotency_key,
         "submitted_by": job.submitted_by,
-        "retry_of": str(job.retry_of_id) if job.retry_of_id else None,
         "counts": {
             "total": job.total_rows,
             "created": job.created_rows,
