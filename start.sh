@@ -18,50 +18,23 @@ compose() {
     return
   fi
 
-  echo "Docker Compose is not available. Install Docker Desktop and run this script again."
+  echo "Docker Compose is not available. Install Docker and run this script again."
   exit 1
 }
 
-install_docker_desktop_on_macos() {
+require_docker() {
   if has_command docker; then
     return
   fi
 
-  if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "Docker is not installed. Install Docker for your OS, then run this script again:"
-    echo "https://docs.docker.com/installation/"
-    exit 1
-  fi
-
-  if ! has_command brew; then
-    echo "Docker is not installed, and Homebrew is not available to install it automatically."
-    echo "Install Docker Desktop from https://docs.docker.com/installation/mac/ and run this script again."
-    exit 1
-  fi
-
-  echo "Docker is not installed. Installing Docker Desktop with Homebrew..."
-  if brew install --cask docker-desktop; then
-    return
-  fi
-
-  echo "Could not install the docker-desktop cask. Trying the older docker cask name..."
-  if brew install --cask docker; then
-    return
-  fi
-
-  echo "Homebrew could not install Docker Desktop automatically."
-  echo "Install it manually from https://docs.docker.com/installation/mac/ and run this script again."
+  echo "Docker is not installed. Install Docker for your OS, then run this script again:"
+  echo "https://docs.docker.com/installation/"
   exit 1
 }
 
 start_docker_desktop() {
   if docker info >/dev/null 2>&1; then
     return
-  fi
-
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    echo "Starting Docker Desktop..."
-    open -a Docker || true
   fi
 
   echo "Waiting for Docker to become ready..."
@@ -73,7 +46,7 @@ start_docker_desktop() {
     sleep 2
   done
 
-  echo "Docker did not become ready in time. Open Docker Desktop, finish any prompts, then run this script again."
+  echo "Docker did not become ready in time. Start Docker on your machine, then run this script again."
   exit 1
 }
 
@@ -92,7 +65,7 @@ wait_for_app() {
   exit 1
 }
 
-install_docker_desktop_on_macos
+require_docker
 start_docker_desktop
 
 echo "Building and starting Postgres plus the application..."
