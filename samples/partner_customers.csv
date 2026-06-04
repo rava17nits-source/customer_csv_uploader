@@ -1,0 +1,36 @@
+row,email,name,status,tier,upd,tags,note
+001,ada@x.io,Ada Lovelace,active,ent,20260420,vip,email
+002,grace@x.io,Grace
+Hopper,active,pro,20260420,compiler,billing
+003,kat@x.io,Katherine Johnson,active,std,20260420,space,legacy
+004,ada@x.io,Ada
+Lovelace,active,std,20260420,vip,partner-b
+
+005,annie@x.io,Annie
+Easley,active,std,20260420,math,onboard
+006,annie@x.io,Annie
+Easley,active,std,20260420,math,duplicate
+007,bad-email,Hedy
+Lamarr,active,pro,20260420,wireless,bad-email
+008,radia@x.io,Radia
+Perlman,active,ent,20260420,network,review
+009,evelyn@x.io,Evelyn
+Granville,active,pro,20260420,math,imported
+010,mag@x.io,M
+Hamilton,active,ent,20260420,apollo,bad-date
+101,ada@x.io,Ada Byron,active,ent,20260421,vip,renamed
+102,kat@x.io,Katherine G
+Johnson,active,std,20260422,space,renamed
+103,grace@x.io,Grace
+Hopper,active,,20260422,compiler,missing
+104,grace@x.io,Grace
+Hopper,active,start,20260419,compiler,older
+105,radia@x.io,Radia
+Perlman,active,ent,20260423,security,new-email
+106,eve@x.io,Evelyn
+Granville,active,ent,20260422,math,upgraded
+107,eve@x.io,Evelyn
+Granville,active,pro,20260420,math,older
+108,ada@x.io,Ada L,inactive,std,20260422,vip,inactive
+109,dot@x.io,Dorothy
+Vaughan,inactive,std,20260421,legacy,closed

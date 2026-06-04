@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: customer_imports
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: crm_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm_user -d customer_imports"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://crm_user:crm_password@db:5432/customer_imports
+      AUTO_MIGRATE: "1"
+      IMPORT_STORAGE_DIR: /app/data/imports
+      JWT_SECRET: local-docker-jwt-secret-change-me
+      DJANGO_SECRET_KEY: local-docker-django-secret-change-me
+    ports:
+      - "8000:8000"
+    volumes:
+      - import_data:/app/data/imports
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres_data:
+  import_data:
